@@ -1,0 +1,36 @@
+# Core AI and ML libraries
+google-generativeai>=0.3.0
+langchain>=0.1.0
+langchain-google-genai>=1.0.0
+langchain-community>=0.0.20
+
+# Web framework
+Flask>=3.0.0
+Flask-CORS>=4.0.0
+
+# Command line interface
+click>=8.1.0
+argparse
+typer>=0.9.0
+
+# Data processing and utilities
+pandas>=2.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+
+# Image processing
+Pillow>=10.0.0
+
+# HTTP requests and API handling
+requests>=2.31.0
+httpx>=0.25.0
+
+# JSON and data serialization
+pydantic>=2.0.0
+marshmallow>=3.20.0
+
+# Environment and configuration
+python-decouple>=3.8
+
+# Logging and monitoring
+loguru>=0.7.0
