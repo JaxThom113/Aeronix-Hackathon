@@ -3,6 +3,9 @@ import io
 import os
 import tempfile
 from collections import defaultdict
+import subprocess
+import tempfile
+
 
 from flask import Flask, request, jsonify, send_file
 from docx import Document
@@ -117,159 +120,182 @@ def create_docx_bytes(text, original_content=None) -> bytes:
     return buf.read()
 
 
+# Put this near the top if you want a fixed project root (repo root):
+PROJECT_ROOT = os.path.abspath(
+    os.getcwd()
+)  # assume you're running from Aeronix-Hackathon root
+
+
+def _resolve_local_paths(paths):
+    """Resolve client-sent paths safely to local absolute paths under PROJECT_ROOT (or accept absolute paths)."""
+    resolved = []
+    for p in paths:
+        # Accept absolute paths as-is; otherwise, treat as relative to PROJECT_ROOT
+        abs_path = os.path.abspath(
+            p if os.path.isabs(p) else os.path.join(PROJECT_ROOT, p)
+        )
+        # Prevent path traversal outside the project root for relative inputs
+        if not os.path.isabs(p) and not abs_path.startswith(PROJECT_ROOT):
+            raise ValueError(f"Unsafe path outside project root: {p}")
+        if not os.path.exists(abs_path) or not os.path.isfile(abs_path):
+            raise FileNotFoundError(f"File not found: {p}")
+        resolved.append(abs_path)
+    return resolved
+
+
 @app.route("/upload", methods=["POST"])
 def upload_files():
     global qa_chain
 
-    file_list = request.files.getlist("files")
-    temp_paths: list[tuple[str, str, str]] = []  # [(tmp_path, ext, orig_name)]
+    data = request.get_json(silent=True) or {}
+    requested_paths = data.get("files", [])
+    if not isinstance(requested_paths, list) or not requested_paths:
+        return (
+            jsonify(
+                {
+                    "error": 'Send JSON like {"files": ["backend/test_files/foo.ipc", ...]}'
+                }
+            ),
+            400,
+        )
+
+    try:
+        file_paths = _resolve_local_paths(requested_paths)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+    # Build entries [(path, ext, name)] for downstream logic
+    entries = []
+    for path in file_paths:
+        name = os.path.basename(path)
+        ext = os.path.splitext(name)[1].lower()
+        entries.append((path, ext, name))
+
     snippets: list[str] = []
     processed: list[dict] = []
 
-    try:
-        # 1) Save uploads to temp paths (preserve extension so type checks work)
-        for f in file_list:
-            orig_name = f.filename or "uploaded"
-            ext = os.path.splitext(orig_name)[1].lower()
-            mimetype = f.mimetype
+    # --- Parse/group content (unchanged logic, but using 'entries' instead of temp files) ---
+    for file_path, ext, orig_name in entries:
+        try:
+            if ext == ".d356":
+                parsed = parse_d356(file_path)
+                snippets.extend(flatten_netlist(parsed))
+                processed.append(
+                    {
+                        "file": orig_name,
+                        "type": "d356",
+                        "status": "ok",
+                        "snippets_added": "netlist",
+                    }
+                )
 
-            # Preserve suffix/extension so later logic can rely on tmp filename
-            tmp = tempfile.NamedTemporaryFile(suffix=ext or "", delete=False)
-            tmp_path = tmp.name
-            tmp.close()  # important on Windows
-            f.save(tmp_path)
-            temp_paths.append((tmp_path, ext, orig_name))
-
-            print(
-                f"Saved upload -> {orig_name} | ext={ext} | mime={mimetype} | tmp={tmp_path}"
-            )
-
-        # 2) Parse/group content similar to build_pipeline
-        for file_path, ext, orig_name in temp_paths:
-            try:
-                if ext == ".d356":
-                    parsed = parse_d356(file_path)
+            elif ext == ".ipc":
+                try:
+                    parsed = parse_ipc(file_path)
+                except NameError:
+                    parsed = extract_file_content(file_path)
+                if isinstance(parsed, (dict, list)):
                     snippets.extend(flatten_netlist(parsed))
                     processed.append(
                         {
                             "file": orig_name,
-                            "type": "d356",
+                            "type": "ipc(parsed)",
                             "status": "ok",
                             "snippets_added": "netlist",
                         }
                     )
-                elif ext == ".ipc":
-                    # If you already have parse_ipc, use it; otherwise fallback to your existing extractor.
-                    try:
-                        parsed = parse_ipc(
-                            file_path
-                        )  # <-- provide/ import this if available
-                    except NameError:
-                        parsed = extract_file_content(
-                            file_path
-                        )  # fallback (text or parsed)
-                    if isinstance(parsed, (dict, list)):
-                        snippets.extend(flatten_netlist(parsed))
-                        processed.append(
-                            {
-                                "file": orig_name,
-                                "type": "ipc(parsed)",
-                                "status": "ok",
-                                "snippets_added": "netlist",
-                            }
-                        )
-                    else:
-                        snippets.append(str(parsed))
-                        processed.append(
-                            {
-                                "file": orig_name,
-                                "type": "ipc(text)",
-                                "status": "ok",
-                                "snippets_added": "text",
-                            }
-                        )
-                elif ext == ".docx":
-                    doc = Document(file_path)
-                    doc_text = "\n".join(
-                        p.text for p in doc.paragraphs if p.text.strip()
-                    )
-                    if doc_text.strip():
-                        snippets.append(doc_text)
+                else:
+                    snippets.append(str(parsed))
                     processed.append(
                         {
                             "file": orig_name,
-                            "type": "docx",
+                            "type": "ipc(text)",
                             "status": "ok",
                             "snippets_added": "text",
                         }
                     )
-                else:
-                    # generic text fallback
-                    try:
-                        with open(
-                            file_path, "r", encoding="utf-8", errors="ignore"
-                        ) as rf:
-                            txt = rf.read()
-                            if txt.strip():
-                                snippets.append(txt)
-                        processed.append(
-                            {
-                                "file": orig_name,
-                                "type": ext or "unknown",
-                                "status": "ok",
-                                "snippets_added": "text",
-                            }
-                        )
-                    except Exception as e:
-                        processed.append(
-                            {
-                                "file": orig_name,
-                                "type": ext or "unknown",
-                                "status": f"skipped ({e})",
-                                "snippets_added": 0,
-                            }
-                        )
-            except Exception as e:
+
+            elif ext == ".docx":
+                d = Document(file_path)
+                doc_text = "\n".join(p.text for p in d.paragraphs if p.text.strip())
+                if doc_text.strip():
+                    snippets.append(doc_text)
                 processed.append(
                     {
                         "file": orig_name,
-                        "type": ext or "unknown",
-                        "status": f"error ({e})",
-                        "snippets_added": 0,
+                        "type": "docx",
+                        "status": "ok",
+                        "snippets_added": "text",
                     }
                 )
 
-        # 3) Embeddings + Vectorstore
-        embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vectorstore = Chroma.from_texts(
-            texts=snippets, embedding=embedder, persist_directory="./chroma_db"
-        )
-        vectorstore.persist()
+            else:
+                # generic text fallback
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as rf:
+                        txt = rf.read()
+                        if txt.strip():
+                            snippets.append(txt)
+                    processed.append(
+                        {
+                            "file": orig_name,
+                            "type": ext or "unknown",
+                            "status": "ok",
+                            "snippets_added": "text",
+                        }
+                    )
+                except Exception as e:
+                    processed.append(
+                        {
+                            "file": orig_name,
+                            "type": ext or "unknown",
+                            "status": f"skipped ({e})",
+                            "snippets_added": 0,
+                        }
+                    )
 
-        # 4) LLM + RetrievalQA  (store in GLOBAL)
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
-        retriever = vectorstore.as_retriever(
-            search_type="similarity", search_kwargs={"k": 143}
-        )
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm, chain_type="stuff", retriever=retriever
+        except Exception as e:
+            processed.append(
+                {
+                    "file": orig_name,
+                    "type": ext or "unknown",
+                    "status": f"error ({e})",
+                    "snippets_added": 0,
+                }
+            )
+
+    if not snippets:
+        return (
+            jsonify(
+                {
+                    "status": "no_content",
+                    "message": "No parsable text extracted.",
+                    "files_processed": processed,
+                    "snippets_count": 0,
+                }
+            ),
+            400,
         )
 
-        return jsonify(
-            {
-                "status": "ok",
-                "files_processed": processed,
-                "snippets_count": len(snippets),
-            }
-        )
+    # --- Embeddings + Vectorstore ---
+    embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    vectorstore = Chroma.from_texts(
+        texts=snippets, embedding=embedder, persist_directory="./chroma_db"
+    )
+    vectorstore.persist()
 
-    finally:
-        # 5) Cleanup temp files
-        for tmp_path, _, _ in temp_paths:
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+    # --- LLM + RetrievalQA (GLOBAL) ---
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+    retriever = vectorstore.as_retriever(
+        search_type="similarity", search_kwargs={"k": 143}
+    )
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm, chain_type="stuff", retriever=retriever
+    )
+
+    return jsonify(
+        {"status": "ok", "files_processed": processed, "snippets_count": len(snippets)}
+    )
 
 
 @app.route("/download")
@@ -285,13 +311,37 @@ def get_file():
 
     filename = "TestProcedure.docx"
 
-    doc_bytes = create_docx_bytes(text=text)
+    doc_bytes = create_docx_bytes(text)
+    # doc_bytes = markdown_to_docx_bytes(text)
     return send_file(
         io.BytesIO(doc_bytes),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         as_attachment=True,
         download_name=filename,  # Flask 2.x
     )
+
+
+def markdown_to_docx_bytes(md_text: str) -> bytes:
+    """Convert Markdown (or plain text) to DOCX via Pandoc and return bytes."""
+    md_text = "" if md_text is None else str(md_text)
+    # Pandoc handles plain text too; no special formatting required.
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as md_file:
+        md_file.write(md_text.encode("utf-8"))
+        md_path = md_file.name
+
+    out_fd, out_path = tempfile.mkstemp(suffix=".docx")
+    os.close(out_fd)
+
+    try:
+        subprocess.run(["pandoc", md_path, "-o", out_path], check=True)
+        with open(out_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in (md_path, out_path):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
