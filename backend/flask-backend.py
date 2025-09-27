@@ -303,7 +303,10 @@ def get_file():
     global qa_chain
     question = """You are a useful tool used by engineers to generate bring-up test plans. Use the provided files, which may include a netlist, BOM,
                   hardware requirement document, and software requirement document. Additionally, reference the
-                  provided example bring-up test document for guidance."""
+                  provided example bring-up test document for guidance. Make the formatting clean and professional. Try to
+                  format it so it works perfectly for word documents and looks nice. Use headings, bullet points,
+                  and numbered lists where appropriate. Include a title page with generation date and title of what is being accomplished.
+                  """
     text = qa_chain.run(question)
 
     if not text:
