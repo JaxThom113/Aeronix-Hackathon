@@ -193,7 +193,7 @@ public partial class MainWindow : Window
         {
             var options = new FilePickerOpenOptions
             {
-                Title = "Select Word Documents",
+                Title = "Select Documents",
                 AllowMultiple = true,
                 FileTypeFilter = new[]
                 {
@@ -302,6 +302,19 @@ public partial class MainWindow : Window
                 // Call test procedures creation function here
 
 
+                // After successful processing locally, POST the list of selected file paths
+                try
+                {
+                    await SendSelectedFilesToBackend(_selectedFilePaths);
+                }
+                catch (Exception ex)
+                {
+                    // If the POST fails, show a non-blocking info dialog and log
+                    System.Diagnostics.Debug.WriteLine($"Failed to POST selected files: {ex.Message}");
+                    await ShowInfoDialog($"Warning: could not notify backend: {ex.Message}");
+                }
+
+
 
 
 
@@ -331,6 +344,7 @@ public partial class MainWindow : Window
             DownloadPanel.IsVisible = true;
             
             ResultText.Text = $"Summary of conversion:\n\n{string.Join("\n", results)}";
+            
         }
         catch (Exception ex)
         {
@@ -486,6 +500,36 @@ public partial class MainWindow : Window
             System.Diagnostics.Debug.WriteLine($"Error opening Aeronix website: {ex.Message}");
             // Show user-friendly error message
             await ShowErrorDialog($"Unable to open Aeronix website. Please visit https://www.aeronix.com/ manually.");
+        }
+    }
+
+    // POST the selected file paths to the backend /upload endpoint
+    private async Task SendSelectedFilesToBackend(List<string> filePaths)
+    {
+        if (filePaths == null || filePaths.Count == 0)
+            return;
+
+        try
+        {
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(15);
+                var payload = new { files = filePaths, processor = "default" };
+                var json = System.Text.Json.JsonSerializer.Serialize(payload);
+                var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+                var resp = await client.PostAsync("http://localhost:5000/upload", content);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync();
+                    throw new Exception($"Server responded {(int)resp.StatusCode}: {body}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Rethrow so caller can decide how to report
+            throw new Exception($"Error sending file list to backend: {ex.Message}", ex);
         }
     }
 }
