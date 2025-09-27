@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using Avalonia.Media;
 using Avalonia.Layout;
+using Avalonia.Threading;
 
 namespace MyApp;
 
@@ -16,10 +17,35 @@ public partial class MainWindow : Window
 {
     private List<string> _selectedFilePaths = new List<string>();
     private List<string> _convertedFilePaths = new List<string>();
+    private System.Threading.CancellationTokenSource? _loadingCts;
 
     public MainWindow()
     {
         InitializeComponent();
+    }
+
+    private void OpenConverter_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            var welcome = this.FindControl<Grid>("WelcomeGrid");
+            var converter = this.FindControl<Grid>("ConverterGrid");
+            if (welcome != null) welcome.IsVisible = false;
+            if (converter != null) converter.IsVisible = true;
+        }
+        catch { }
+    }
+
+    private void BackToWelcome_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            var welcome = this.FindControl<Grid>("WelcomeGrid");
+            var converter = this.FindControl<Grid>("ConverterGrid");
+            if (welcome != null) welcome.IsVisible = true;
+            if (converter != null) converter.IsVisible = false;
+        }
+        catch { }
     }
 
     private void DisplaySelectedFiles()
@@ -27,8 +53,8 @@ public partial class MainWindow : Window
         try
         {
             FileListPanel.Children.Clear();
-            
-            if (_selectedFilePaths?.Count == 0)
+
+            if (_selectedFilePaths == null || _selectedFilePaths.Count == 0)
             {
                 FilePathTextBox.Text = "No files selected";
                 ConvertButton.IsEnabled = false;
@@ -60,7 +86,7 @@ public partial class MainWindow : Window
                     Text = fileName,
                     FontSize = 12,
                     FontWeight = FontWeight.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0, 120, 212)),
+                    Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 255)),
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Avalonia.Thickness(0, 0, 8, 0)
@@ -167,16 +193,13 @@ public partial class MainWindow : Window
         {
             var options = new FilePickerOpenOptions
             {
-                Title = "Select Word Documents",
+                Title = "Select Documents",
                 AllowMultiple = true,
                 FileTypeFilter = new[]
                 {
-                    new FilePickerFileType("Word Documents")
-                    {
-                        Patterns = new[] { "*.doc", "*.docx" }
-                    },
                     new FilePickerFileType("All Files")
                     {
+                        // Allow all file instead of just Word Files, so Netlists and BOMs are included
                         Patterns = new[] { "*.*" }
                     }
                 }
@@ -210,23 +233,25 @@ public partial class MainWindow : Window
     {
         if (_selectedFilePaths.Count == 0 || _selectedFilePaths.Any(path => !File.Exists(path)))
         {
-            await ShowErrorDialog("Please select valid Word documents first.");
+            await ShowErrorDialog("Please select valid documents first.");
             return;
         }
 
         try
         {
-            // Show progress
+            // Show progress and start loading animation
             ProgressBorder.IsVisible = true;
-            ProgressBar.IsIndeterminate = false;
-            ProgressBar.Maximum = _selectedFilePaths.Count;
-            ProgressBar.Value = 0;
+            ProgressBar.IsVisible = true;
+            ProgressBar.IsIndeterminate = true; // let the control show a loading marquee
+            // Start face loading animation loop
+            _loadingCts?.Cancel();
+            _loadingCts = new System.Threading.CancellationTokenSource();
             ResultBorder.IsVisible = false;
             DownloadPanel.IsVisible = false;
             ConvertButton.IsEnabled = false;
 
             // Perform conversion for all files
-            await ConvertMultipleWordToPdfAsync(_selectedFilePaths);
+            await CreateTestProcedures(_selectedFilePaths);
         }
         catch (Exception ex)
         {
@@ -236,10 +261,18 @@ public partial class MainWindow : Window
         finally
         {
             ConvertButton.IsEnabled = true;
+            // Stop loading animation if still running
+            try
+            {
+                _loadingCts?.Cancel();
+                _loadingCts = null;
+                ProgressBar.IsIndeterminate = false;
+            }
+            catch { }
         }
     }
 
-    private async Task ConvertMultipleWordToPdfAsync(List<string> inputPaths)
+    private async Task CreateTestProcedures(List<string> inputPaths)
     {
         try
         {
@@ -258,7 +291,35 @@ public partial class MainWindow : Window
 
                 // Update progress bar and face animation
                 ProgressBar.Value = i;
-                await UpdateFaceAnimation(i, inputPaths.Count);
+
+
+
+
+
+
+
+
+                // Call test procedures creation function here
+
+
+                // After successful processing locally, POST the list of selected file paths
+                try
+                {
+                    await SendSelectedFilesToBackend(_selectedFilePaths);
+                }
+                catch (Exception ex)
+                {
+                    // If the POST fails, show a non-blocking info dialog and log
+                    System.Diagnostics.Debug.WriteLine($"Failed to POST selected files: {ex.Message}");
+                    await ShowInfoDialog($"Warning: could not notify backend: {ex.Message}");
+                }
+
+
+
+
+
+
+                // Below code may not be needed:
 
                 // Perform conversion on background thread to avoid blocking UI
                 await Task.Run(() =>
@@ -274,46 +335,21 @@ public partial class MainWindow : Window
             }
 
             // Complete animation and update UI
-            ProgressBar.Value = inputPaths.Count;
-            await UpdateFaceAnimation(inputPaths.Count, inputPaths.Count);
-            
-            // Recenter mouth in the middle of the circle after rotation
-            await RecenterMouthInCircle();
+            ProgressBar.IsIndeterminate = false;
+            ProgressBar.Value = ProgressBar.Maximum = inputPaths.Count;
             
             ConvertingText.Text = "Complete!";
             ProgressBar.IsVisible = false;
             ResultBorder.IsVisible = true;
             DownloadPanel.IsVisible = true;
             
-            ResultText.Text = $"Conversion Complete!\n\n{string.Join("\n", results)}";
+            ResultText.Text = $"Summary of conversion:\n\n{string.Join("\n", results)}";
+            
         }
         catch (Exception ex)
         {
             ProgressBorder.IsVisible = false;
-            throw new Exception($"Failed to convert documents: {ex.Message}");
-        }
-    }
-
-    private async Task UpdateFaceAnimation(int current, int total)
-    {
-        try
-        {
-            // Calculate rotation angle based on progress
-            var rotationAngle = total > 0 ? (current * 180.0) / total : 0.0;
-            
-            // Apply rotation around mouth center (15, 8) for 30px wide mouth
-            MouthPath.RenderTransform = new RotateTransform
-            {
-                Angle = rotationAngle,
-                CenterX = 15, // Center of 30px wide mouth
-                CenterY = 8   // Center of mouth height
-            };
-
-            await Task.Delay(100);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Error updating face animation: {ex.Message}");
+            throw new Exception($"Failed to parse documents: {ex.Message}");
         }
     }
 
@@ -329,67 +365,13 @@ public partial class MainWindow : Window
             // Reset progress bar
             ProgressBar.Value = 0;
             ProgressBar.IsVisible = true;
-            
-            // Reset face to frown
-            ResetFaceToFrown();
+
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error resetting UI state: {ex.Message}");
         }
     }
-
-    private void ResetFaceToFrown()
-    {
-        try
-        {
-            // Reset to original position
-            MouthPath.RenderTransform = new RotateTransform
-            {
-                Angle = 0,
-                CenterX = 15,
-                CenterY = 8
-            };
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Error resetting face: {ex.Message}");
-        }
-    }
-
-    private async Task RecenterMouthInCircle()
-    {
-        try
-        {
-            // After rotation around (15, 8), recenter mouth in the middle of the 60px circle
-            // Circle center is at (30, 30) relative to the face circle
-            // Mouth needs to be moved to center of the circle
-            var transform = new TransformGroup();
-            
-            // Keep the 180-degree rotation around (15, 8)
-            transform.Children.Add(new RotateTransform
-            {
-                Angle = 180,
-                CenterX = 15,
-                CenterY = 8
-            });
-            
-            // Add translation to center the mouth in the circle
-            transform.Children.Add(new TranslateTransform
-            {
-                X = -25,  // Move 25px left to center horizontally
-                Y = -10   // Move 10px up to center vertically
-            });
-            
-            MouthPath.RenderTransform = transform;
-            await Task.Delay(200);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Error recentering mouth: {ex.Message}");
-        }
-    }
-
 
     private async void DownloadButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
@@ -418,7 +400,7 @@ public partial class MainWindow : Window
                 };
 
                 var file = await StorageProvider.SaveFilePickerAsync(options);
-                
+
                 if (file != null)
                 {
                     File.Copy(_convertedFilePaths[0], file.Path.LocalPath, overwrite: true);
@@ -518,6 +500,36 @@ public partial class MainWindow : Window
             System.Diagnostics.Debug.WriteLine($"Error opening Aeronix website: {ex.Message}");
             // Show user-friendly error message
             await ShowErrorDialog($"Unable to open Aeronix website. Please visit https://www.aeronix.com/ manually.");
+        }
+    }
+
+    // POST the selected file paths to the backend /upload endpoint
+    private async Task SendSelectedFilesToBackend(List<string> filePaths)
+    {
+        if (filePaths == null || filePaths.Count == 0)
+            return;
+
+        try
+        {
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(15);
+                var payload = new { files = filePaths, processor = "default" };
+                var json = System.Text.Json.JsonSerializer.Serialize(payload);
+                var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+                var resp = await client.PostAsync("http://localhost:5000/upload", content);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync();
+                    throw new Exception($"Server responded {(int)resp.StatusCode}: {body}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Rethrow so caller can decide how to report
+            throw new Exception($"Error sending file list to backend: {ex.Message}", ex);
         }
     }
 }
