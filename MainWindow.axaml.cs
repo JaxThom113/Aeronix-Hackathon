@@ -282,56 +282,11 @@ public partial class MainWindow : Window
             for (int i = 0; i < inputPaths.Count; i++)
             {
                 var inputPath = inputPaths[i];
-                
-                // Generate output path
-                var directory = Path.GetDirectoryName(inputPath) ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                var fileName = Path.GetFileNameWithoutExtension(inputPath);
-                var outputPath = Path.Combine(directory, $"{fileName}_converted.pdf");
-                _convertedFilePaths.Add(outputPath);
 
                 // Update progress bar and face animation
                 ProgressBar.Value = i;
 
-
-
-
-
-
-
-
-                // Call test procedures creation function here
-
-
-                // After successful processing locally, POST the list of selected file paths
-                try
-                {
-                    await SendSelectedFilesToBackend(_selectedFilePaths);
-                }
-                catch (Exception ex)
-                {
-                    // If the POST fails, show a non-blocking info dialog and log
-                    System.Diagnostics.Debug.WriteLine($"Failed to POST selected files: {ex.Message}");
-                    await ShowInfoDialog($"Warning: could not notify backend: {ex.Message}");
-                }
-
-
-
-
-
-
-                // Below code may not be needed:
-
-                // Perform conversion on background thread to avoid blocking UI
-                await Task.Run(() =>
-                {
-                    // Load the Word document
-                    var doc = new Document(inputPath);
-
-                    // Save as PDF
-                    doc.Save(outputPath, SaveFormat.Pdf);
-                });
-
-                results.Add($"✓ {Path.GetFileName(inputPath)} → {Path.GetFileName(outputPath)}");
+                results.Add($"✓ {Path.GetFileName(inputPath)} → TestProcedures.docx");
             }
 
             // Complete animation and update UI
@@ -342,6 +297,18 @@ public partial class MainWindow : Window
             ProgressBar.IsVisible = false;
             ResultBorder.IsVisible = true;
             DownloadPanel.IsVisible = true;
+
+            // After successful processing locally, POST the list of selected file paths
+            try
+            {
+                await SendSelectedFilesToBackend(_selectedFilePaths);
+            }
+            catch (Exception ex)
+            {
+                // If the POST fails, show a non-blocking info dialog and log
+                System.Diagnostics.Debug.WriteLine($"Failed to POST selected files: {ex.Message}");
+                await ShowInfoDialog($"Warning: could not notify backend: {ex.Message}");
+            }
             
             ResultText.Text = $"Summary of conversion:\n\n{string.Join("\n", results)}";
             
