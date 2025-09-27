@@ -11,6 +11,25 @@ from pathlib import Path
 import json
 from typing import Dict, Any
 from docx import Document as DocxDocument
+import copy
+
+
+def _local_name(tag: str) -> str:
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+IMAGE_TAGS = {"drawing", "pict", "blip", "graphic", "graphicdata"}
+COMMENT_TAGS = {"commentrangestart", "commentrangeend", "commentreference", "comment"}
+REVISION_TAGS = {
+    "ins",
+    "del",
+    "movefrom",
+    "moveto",
+    "movefromrangestart",
+    "movefromrangeend",
+    "movetorangeend",
+    "revision",
+}
 
 # Import our CLI functions
 from cli import extract_file_content, set_content_processor, example_processor
@@ -178,20 +197,183 @@ def merge_docx_files(input_paths, output_filename: str) -> str:
             "Note: This document contains content combined and processed by an AI-generated workflow."
         )
 
-        # Append the body of each document into merged
+        # Append the content of each document into merged, preserving
+        # paragraph/table order and basic run formatting. Images are
+        # excluded because we only copy run.text.
+        def _copy_run(src_run, dest_run):
+            # Copy basic run-level formatting where available
+            try:
+                dest_run.bold = src_run.bold
+                dest_run.italic = src_run.italic
+                dest_run.underline = src_run.underline
+                dest_run.strike = src_run.strike
+            except Exception:
+                pass
+            try:
+                # Font properties
+                if src_run.font is not None and dest_run.font is not None:
+                    if getattr(src_run.font, "name", None):
+                        dest_run.font.name = src_run.font.name
+                    if getattr(src_run.font, "size", None):
+                        dest_run.font.size = src_run.font.size
+                    if getattr(src_run.font.color, "rgb", None):
+                        dest_run.font.color.rgb = src_run.font.color.rgb
+            except Exception:
+                pass
+
+        def _copy_paragraph(src_p, dest_parent):
+            # dest_parent is a Document or a _Cell; use add_paragraph on it
+            try:
+                dest_p = dest_parent.add_paragraph()
+            except Exception:
+                # If dest_parent already has paragraphs (e.g., a cell), create one differently
+                dest_p = dest_parent.paragraphs[0]
+
+            # copy paragraph-level style if possible
+            try:
+                if src_p.style is not None:
+                    dest_p.style = src_p.style
+            except Exception:
+                pass
+            try:
+                dest_p.alignment = src_p.alignment
+            except Exception:
+                pass
+
+            for src_run in src_p.runs:
+                text = src_run.text or ""
+                if not text:
+                    # No textual content in this run (likely an image-only run)
+                    continue
+                new_run = dest_p.add_run(text)
+                _copy_run(src_run, new_run)
+
+            # If paragraph appears empty (python-docx couldn't extract text),
+            # attempt an XML fallback to capture field results (TOC entries, etc.).
+            if not dest_p.text.strip():
+                try:
+                    # Concatenate text from all descendant text nodes
+                    xml_text_parts = []
+                    for node in src_p._p.iter():
+                        # text content can be on .text or .tail
+                        if getattr(node, "text", None):
+                            xml_text_parts.append(str(node.text))
+                        if getattr(node, "tail", None):
+                            xml_text_parts.append(str(node.tail))
+                    fallback_text = "".join(
+                        [t for t in xml_text_parts if t and t.strip()]
+                    ).strip()
+                    if fallback_text:
+                        # replace the empty paragraph content with fallback
+                        dest_p.clear()
+                        dest_p.add_run(fallback_text)
+                except Exception:
+                    pass
+
+            return dest_p
+
+        def _copy_table(src_tbl, dest_doc):
+            # create destination table with same dimensions
+            rows = len(src_tbl.rows)
+            cols = len(src_tbl.rows[0].cells) if rows > 0 else 0
+            if rows == 0 or cols == 0:
+                return
+            dest_tbl = dest_doc.add_table(rows=rows, cols=cols)
+            try:
+                dest_tbl.style = src_tbl.style
+            except Exception:
+                pass
+
+            for r_idx, src_row in enumerate(src_tbl.rows):
+                for c_idx, src_cell in enumerate(src_row.cells):
+                    dest_cell = dest_tbl.rows[r_idx].cells[c_idx]
+                    # Clear any default paragraph
+                    for p in list(dest_cell.paragraphs):
+                        p.clear()
+                    # Copy paragraphs inside the cell
+                    for src_p in src_cell.paragraphs:
+                        _copy_paragraph(src_p, dest_cell)
+
         for path in input_paths:
             try:
                 src = DocxDocument(path)
             except Exception as e:
-                # skip unreadable docs but include an error paragraph
                 merged.add_paragraph(
                     f"[Unable to include {os.path.basename(path)}: {e}]"
                 )
                 continue
 
-            # Append each element from source body to merged body
-            for element in src.element.body:
-                merged.element.body.append(element)
+            # Add a subheading with the source filename
+            merged.add_heading(os.path.basename(path), level=2)
+
+            # Track TOC/fallback texts to avoid duplication
+            seen_toc_texts = set()
+
+            # To preserve original order, iterate over the XML body and use
+            # paragraph/table counters to map to python-docx objects.
+            p_idx = 0
+            t_idx = 0
+            for child in src.element.body:
+                lname = _local_name(child.tag).lower()
+                if lname == "p":
+                    if p_idx < len(src.paragraphs):
+                        src_p = src.paragraphs[p_idx]
+
+                        # Detect TOC/field paragraphs by inspecting XML for field nodes
+                        is_field = False
+                        try:
+                            for node in src_p._p.iter():
+                                tag_local = _local_name(node.tag).lower()
+                                if tag_local in ("fldsimple", "fldchar", "instrtext"):
+                                    is_field = True
+                                    break
+                        except Exception:
+                            is_field = False
+
+                        if is_field:
+                            # Extract only visible text pieces from field paragraphs.
+                            # Word stores the visible text in <w:t> nodes, and page
+                            # number/tab markers in <w:tab>. The <w:instrText> and
+                            # <w:fldChar> nodes contain field codes/instructions and
+                            # should be ignored to avoid raw field code leakage.
+                            visible_parts = []
+                            try:
+                                for node in src_p._p.iter():
+                                    tag_local = _local_name(node.tag).lower()
+                                    # include text nodes and tail text
+                                    if tag_local == "t" and getattr(node, "text", None):
+                                        visible_parts.append(str(node.text))
+                                    elif tag_local == "tab":
+                                        # use a single tab/space to separate columns
+                                        visible_parts.append("\t")
+                                    elif getattr(node, "tail", None):
+                                        # tail text can contain visible fragments
+                                        visible_parts.append(str(node.tail))
+                            except Exception:
+                                pass
+
+                            # Join and normalize whitespace
+                            fallback_text = "".join(
+                                [p for p in visible_parts if p and p.strip()]
+                            ).strip()
+                            if fallback_text and fallback_text not in seen_toc_texts:
+                                seen_toc_texts.add(fallback_text)
+                                try:
+                                    merged.add_paragraph(fallback_text)
+                                except Exception:
+                                    _copy_paragraph(src_p, merged)
+                            # else: skip duplicate or empty TOC entry
+                        else:
+                            _copy_paragraph(src_p, merged)
+                    p_idx += 1
+                elif lname == "tbl":
+                    if t_idx < len(src.tables):
+                        src_tbl = src.tables[t_idx]
+                        _copy_table(src_tbl, merged)
+                    t_idx += 1
+
+            # Separator
+            merged.add_paragraph("")
 
         # Save merged document to temp file
         temp_dir = tempfile.gettempdir()
