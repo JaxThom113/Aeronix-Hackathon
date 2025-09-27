@@ -214,52 +214,56 @@ def test_merge_docx():
         ("files", open(doc2, "rb")),
     ]
 
+    response = None
     try:
-        response = requests.post(f"{API_BASE_URL}/merge-docx", files=files)
+        try:
+            response = requests.post(f"{API_BASE_URL}/merge-docx", files=files)
+        except requests.exceptions.ConnectionError:
+            # Server not reachable via HTTP; fall back to Flask test client
+            print("Server not reachable via HTTP; falling back to Flask test client")
+            import sys
+
+            # Ensure backend is importable
+            sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
+            import api as local_api
+
+            client = local_api.app.test_client()
+
+            # Close request-opened file objects and re-open for test client
+            for _, fh in files:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+
+            opened = []
+            # Use a MultiDict so EnvironBuilder can accept multiple files with the same key
+            from werkzeug.datastructures import MultiDict
+
+            data = MultiDict()
+            for p in (doc1, doc2):
+                f = open(p, "rb")
+                opened.append(f)
+                # value is a (fileobj, filename) tuple
+                data.add("files", (f, os.path.basename(p)))
+
+            try:
+                response = client.post(
+                    "/merge-docx", data=data, content_type="multipart/form-data"
+                )
+            finally:
+                for f in opened:
+                    try:
+                        f.close()
+                    except Exception:
+                        pass
     finally:
+        # Ensure any files opened for the requests call are closed
         for _, fh in files:
             try:
                 fh.close()
             except Exception:
                 pass
-
-    # If the server isn't running, fall back to Flask's test client so the
-    # test can still run in-process. This makes the test robust for CI or
-    # local runs where the dev server hasn't been started separately.
-    try:
-        print(f"Status: {response.status_code}")
-        if response.status_code != 200:
-            print(f"Error: {response.status_code} {response.text}")
-            assert False
-    except (NameError, requests.exceptions.ConnectionError):
-        # Fallback: use Flask test client
-        print("Server not reachable via HTTP; falling back to Flask test client")
-        import sys
-
-        # Ensure backend is importable
-        sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
-        import api as local_api
-
-        client = local_api.app.test_client()
-
-        # Re-open files for the test client
-        opened = []
-        data = []
-        for p in (doc1, doc2):
-            f = open(p, "rb")
-            opened.append(f)
-            data.append(("files", (f, os.path.basename(p))))
-
-        try:
-            response = client.post(
-                "/merge-docx", data=data, content_type="multipart/form-data"
-            )
-        finally:
-            for f in opened:
-                try:
-                    f.close()
-                except Exception:
-                    pass
 
     output_path = os.path.join(TEST_OUTPUT_DIR, "merged.docx")
     with open(output_path, "wb") as f:

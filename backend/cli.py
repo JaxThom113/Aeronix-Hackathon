@@ -114,8 +114,31 @@ def extract_file_content(file_path: str) -> dict:
                 content = "PDF processing requires PyPDF2 library"
         elif file_type == "docx":
             if DOCX_AVAILABLE:
+                # Load document and extract text while skipping images and comments
                 doc = Document(file_path)
-                content = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+
+                def _local_name(tag: str) -> str:
+                    return tag.split("}")[-1] if "}" in tag else tag
+
+                IMAGE_TAGS = {"drawing", "pict", "blip", "graphic", "graphicdata"}
+
+                paragraphs = []
+                for p in doc.paragraphs:
+                    # Build paragraph text by concatenating runs that do not
+                    # contain images, comments, or revision markup. This
+                    # preserves surrounding text while removing the markup.
+                    cleaned_runs = []
+                    # Include all run text. Images will not be present in run.text
+                    # so we can safely concatenate runs to preserve text.
+                    for run in p.runs:
+                        if run.text:
+                            cleaned_runs.append(run.text)
+
+                    cleaned_text = "".join(cleaned_runs).strip()
+                    if cleaned_text:
+                        paragraphs.append(cleaned_text)
+
+                content = "\n".join(paragraphs)
             else:
                 content = "DOCX processing requires python-docx library"
         elif file_type == "excel":
@@ -310,7 +333,30 @@ def process_docx_file(file_path: str) -> dict:
             }
 
         doc = Document(file_path)
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+
+        def _local_name(tag: str) -> str:
+            return tag.split("}")[-1] if "}" in tag else tag
+
+        IMAGE_TAGS = {"drawing", "pict", "blip", "graphic", "graphicdata"}
+        COMMENT_TAGS = {
+            "commentrangestart",
+            "commentrangeend",
+            "commentreference",
+            "comment",
+        }
+        paragraphs = []
+        for p in doc.paragraphs:
+            # Preserve paragraph text while removing runs that include
+            # images/comments/revision markup.
+            cleaned_runs = []
+            for run in p.runs:
+                if run.text:
+                    cleaned_runs.append(run.text)
+
+            cleaned_text = "".join(cleaned_runs).strip()
+            if cleaned_text:
+                paragraphs.append(cleaned_text)
+
         text_content = "\n".join(paragraphs)
 
         return {

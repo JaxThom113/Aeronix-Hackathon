@@ -2,3 +2,5 @@ obj/
 bin/
 .venv/
 test_outputs/
+.pytest_cache/
+__pycache__/
