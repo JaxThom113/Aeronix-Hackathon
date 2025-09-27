@@ -18,7 +18,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 2. Activate Virtual Environment (when needed)
+### 2. Install Requirements
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Activate Virtual Environment (when needed)
 
 **Windows:**
 
@@ -30,12 +36,6 @@ source .venv/bin/activate
 
 ```bash
 source .venv/bin/activate
-```
-
-### 3. Install Requirements
-
-```bash
-pip install -r requirements.txt
 ```
 
 ### 4. Deactivate Virtual Environment
