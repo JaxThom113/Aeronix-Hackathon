@@ -1,0 +1,13 @@
+{
+  "name": "Sample JSON File",
+  "version": "1.0",
+  "data": {
+    "users": ["alice", "bob", "charlie"],
+    "count": 3,
+    "active": true
+  },
+  "metadata": {
+    "created": "2024-01-01",
+    "author": "Test User"
+  }
+}

@@ -1,0 +1,3 @@
+This is a sample text file for testing the CLI tool.
+It contains multiple lines of text to test text file processing.
+The CLI should be able to count words, lines, and provide a preview.

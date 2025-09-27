@@ -21,6 +21,15 @@ python-dotenv>=1.0.0
 # Image processing
 Pillow>=10.0.0
 
+# Document processing
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+openpyxl>=3.1.0
+
+# Web framework
+Flask>=3.0.0
+Werkzeug>=3.0.0
+
 # HTTP requests and API handling
 requests>=2.31.0
 httpx>=0.25.0

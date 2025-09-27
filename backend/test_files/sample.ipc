@@ -1,0 +1,4 @@
+IPC File Format Test
+This is a dummy IPC (Inter-Process Communication) file.
+It contains sample data for testing IPC file processing.
+The CLI tool should be able to handle this file type.
