@@ -6,9 +6,16 @@
         x:Class="MyApp.MainWindow"
         Title="Word to PDF Converter"
         Width="600" Height="500"
-        MinWidth="500" MinHeight="400">
-    
-    <Grid Margin="20">
+        MinWidth="500" MinHeight="400"
+        Background="Transparent">
+    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.Background>
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                <GradientStop Color="Black" Offset="0.0"/>
+                <GradientStop Color="#1a3f40" Offset="0.8"/>
+                <GradientStop Color="#327e80" Offset="1.0"/>
+            </LinearGradientBrush>
+        </Grid.Background>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -19,25 +26,36 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         
+           <!-- UF HACKATHON Text -->
+           <TextBlock Grid.Row="0" 
+                      Text="UF HACKATHON" 
+                      FontSize="40" 
+                      FontWeight="Bold" 
+                      Foreground="White"
+                      HorizontalAlignment="Center" 
+                      Margin="20,20,20,10"/>
+        
         <!-- Title -->
-        <TextBlock Grid.Row="0" 
-                   Text="Word to PDF Converter" 
-                   FontSize="24" 
+        <TextBlock Grid.Row="1" 
+                   Text="Aeronix Test Converter" 
+                   FontSize="32" 
                    FontWeight="Bold" 
+                   Foreground="White"
                    HorizontalAlignment="Center" 
-                   Margin="0,0,0,20"/>
+                   Margin="20,0,20,20"/>
         
         <!-- File Selection Section -->
-        <Border Grid.Row="1" 
+        <Border Grid.Row="2" 
                 Background="#0099FF" 
                 CornerRadius="8" 
                 Padding="15" 
-                Margin="0,0,0,15">
+                Margin="20,0,20,15">
             <StackPanel>
-                <TextBlock Text="Select Word Document" 
-                           FontSize="16" 
-                           FontWeight="SemiBold" 
-                           Margin="0,0,0,10"/>
+                   <TextBlock Text="Select Word Documents" 
+                              FontSize="16" 
+                              FontWeight="SemiBold" 
+                              Foreground="White"
+                              Margin="0,0,0,10"/>
                 
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -45,11 +63,21 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     
-                    <TextBox Grid.Column="0" 
-                             x:Name="FilePathTextBox" 
-                             Text="No file selected" 
-                             IsReadOnly="True" 
-                             Margin="0,0,10,0"/>
+                    <ScrollViewer Grid.Column="0" 
+                                  x:Name="FileScrollViewer"
+                                  MaxHeight="200" 
+                                  MinHeight="60"
+                                  VerticalScrollBarVisibility="Auto" 
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Margin="0,0,10,0">
+                        <StackPanel x:Name="FileListPanel">
+                           <TextBlock x:Name="FilePathTextBox" 
+                                      Text="No files selected" 
+                                      TextWrapping="Wrap"
+                                      FontSize="12"
+                                      Foreground="White"/>
+                        </StackPanel>
+                    </ScrollViewer>
                     
                     <Button Grid.Column="1" 
                             x:Name="BrowseButton" 
@@ -61,9 +89,9 @@
         </Border>
         
         <!-- Convert Button -->
-        <Button Grid.Row="2" 
+        <Button Grid.Row="3" 
                 x:Name="ConvertButton" 
-                Content="Convert to PDF" 
+                Content="Convert All to PDF" 
                 HorizontalAlignment="Center" 
                 Padding="20,12" 
                 FontSize="16" 
@@ -76,7 +104,7 @@
                 IsEnabled="False"/>
         
         <!-- Progress Section -->
-        <Border Grid.Row="3" 
+        <Border Grid.Row="4" 
                 x:Name="ProgressBorder" 
                 Background="#FF9800" 
                 CornerRadius="8" 
@@ -84,10 +112,47 @@
                 Margin="0,0,0,15"
                 IsVisible="False">
             <StackPanel>
-                <TextBlock Text="Converting..." 
+                <TextBlock x:Name="ConvertingText"
+                           Text="Converting..." 
                            FontSize="14" 
                            FontWeight="SemiBold" 
+                           Foreground="White"
                            Margin="0,0,0,8"/>
+                
+                <!-- Animated Face -->
+                <StackPanel HorizontalAlignment="Center" Margin="0,0,0,10">
+                    <Ellipse x:Name="FaceCircle" 
+                             Width="60" 
+                             Height="60" 
+                             Fill="#FFD700" 
+                             Stroke="#FFA500" 
+                             StrokeThickness="2"/>
+                    
+                    <!-- Eyes -->
+                    <Canvas Width="60" Height="60" Margin="0,-60,0,0">
+                        <Ellipse Canvas.Left="15" Canvas.Top="15" Width="8" Height="8" Fill="Black"/>
+                        <Ellipse Canvas.Left="37" Canvas.Top="15" Width="8" Height="8" Fill="Black"/>
+                        
+                        <!-- Mouth - starts as upside-down parabola -->
+                        <Path x:Name="MouthPath" 
+                              Canvas.Left="15" Canvas.Top="35" 
+                              Stroke="Black" 
+                              StrokeThickness="3" 
+                              StrokeLineCap="Round">
+                            <Path.Data>
+                                <PathGeometry>
+                                    <PathFigure StartPoint="0,8">
+                                        <ArcSegment Point="30,8"
+                                                   Size="15,8"
+                                                   SweepDirection="Clockwise"
+                                                   IsLargeArc="False"/>
+                                    </PathFigure>
+                                </PathGeometry>
+                            </Path.Data>
+                        </Path>
+                    </Canvas>
+                </StackPanel>
+                
                 <ProgressBar x:Name="ProgressBar" 
                              IsIndeterminate="True" 
                              Height="6"/>
@@ -95,7 +160,7 @@
         </Border>
         
         <!-- Result Section -->
-        <Border Grid.Row="4" 
+        <Border Grid.Row="5" 
                 x:Name="ResultBorder" 
                 Background="#E8F5E8" 
                 CornerRadius="8" 
@@ -106,11 +171,11 @@
                 <TextBlock Text="Conversion Complete!" 
                            FontSize="14" 
                            FontWeight="SemiBold" 
-                           Foreground="#2E7D32" 
+                           Foreground="Black" 
                            Margin="0,0,0,8"/>
                 <TextBlock x:Name="ResultText" 
                            FontSize="12" 
-                           Foreground="#2E7D32"/>
+                           Foreground="Black"/>
             </StackPanel>
         </Border>
         
@@ -140,6 +205,21 @@
                     Foreground="White"
                     CornerRadius="6"
                     Click="OpenFolderButton_Click"/>
+        </StackPanel>
+        
+        <!-- Aeronix Link -->
+        <StackPanel Grid.Row="7" 
+                    HorizontalAlignment="Left" 
+                    VerticalAlignment="Bottom" 
+                    Margin="20,0,0,20"
+                    Orientation="Horizontal">
+               <Button Content="Learn more about Aeronix" 
+                       FontSize="12" 
+                       Foreground="White"
+                       Background="Transparent"
+                       BorderThickness="0"
+                       Padding="0"
+                       Click="AeronixLink_Click"/>
         </StackPanel>
     </Grid>
 </Window>
