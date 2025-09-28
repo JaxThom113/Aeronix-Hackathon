@@ -6,7 +6,7 @@ import getpass
 import os
 
 if not os.environ.get("GOOGLE_API_KEY"):
-  os.environ["GOOGLE_API_KEY"] = "AIzaSyBnIxFlfWNjdFQkwmvTSfW9Yu5wpj7oa7o"
+  os.environ["GOOGLE_API_KEY"] = "" # put Gemini API key here
 
 from langchain.chat_models import init_chat_model
 
